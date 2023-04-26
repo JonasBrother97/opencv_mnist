@@ -1,71 +1,60 @@
 import cv2
-import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torchvision.transforms as transforms
 
+from modelo import modelo
 
-class modelo(nn.Module):
-    def __init__(self):
-        super(modelo, self).__init__()
-        self.fc1 = nn.Linear(784, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = x.view(-1, 784)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        x = F.softmax(x, dim=1)
-        return x
-
-
-# Load the pre-trained model
+# Carregar o modelo treinado
 model = modelo()
 model.load_state_dict(torch.load('mnist_model.pt'))
 
-# Define a function to preprocess the image
+# Definir uma função para pré-processar a imagem
 
 
 def preprocess(image):
-    # Convert the image to grayscale and apply Gaussian blur and thresholding
+    # Converte para cinza a imagem
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # Image Blurring (Image Smoothing), se usa para remover barulho
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # Threshhold, serve para separar o background do foreground
+    # cv2.adaptiveThreshold é muito lento, mas dá resultados melhores
     _, thresh = cv2.threshold(
         blur, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
-    # Resize the image to 28x28 and convert it to a PyTorch tensor
+    # Resize para 28x28 a imagem
     resized = cv2.resize(thresh, (28, 28), interpolation=cv2.INTER_AREA)
+
+    # Transforma a imagem em um tensor
     tensor = torch.from_numpy(resized).float().unsqueeze(0).unsqueeze(0)
+
+    # Normaliza os pixels para que fiquem entre 0 e 1
     tensor /= 255.0
 
     return tensor
 
 
-# Initialize the video capture object
+# Inicialize o objeto de captura de vídeo
 cap = cv2.VideoCapture(0)
 
-# Get the width and height of the video frames
+
+# Pega as medidas da imagem e define o tamanho do bounding box
 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-# Define the coordinates of the bounding box
 bbox_size = (250, 250)
 bbox = [(int(width // 2 - bbox_size[0] // 2), int(height // 2 - bbox_size[1] // 2)),
         (int(width // 2 + bbox_size[0] // 2), int(height // 2 + bbox_size[1] // 2))]
 
-# Start the video capture loop
+# Começa o vídeo
 while True:
-    # Read a frame from the camera
     _, frame = cap.read()
 
-    # Get the cropped image and preprocess it
+    # O que está no box é preprocessado e transformado em um tensor
     img_cropped = frame[bbox[0][1]:bbox[1][1], bbox[0][0]:bbox[1][0]]
     img_tensor = preprocess(img_cropped)
 
-    # Make a prediction using the model and get the predicted digit and confidence
+    # Predição pelo modelo
     model.eval()
     with torch.no_grad():
         output = model(img_tensor)
@@ -73,22 +62,21 @@ while True:
         confidence = torch.nn.functional.softmax(
             output, dim=1)[0][predicted] * 100
 
-    # Draw the bounding box on the frame
+    # Desenha o bounding box apenas para visualização
     cv2.rectangle(frame, bbox[0], bbox[1], (0, 255, 0), 3)
 
-    # If the confidence is high enough, draw the predicted digit on the frame
+    # Definido um nível de confiança, o número é mostrado na tela
     if confidence > 23:
         cv2.putText(frame, str(predicted.item(
         )), (bbox[0][0] + 5, bbox[0][1] + 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
 
-    # Display the frames
+    # Cria uma janela para mostrar o vídeo
     cv2.imshow('input', frame)
-    # cv2.imshow('cropped', img_cropped)
 
-    # Exit the loop if the 'q' key is pressed
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    # Cancela o loop quando a tecla 'q' é pressionada
+    if cv2.waitKey(1) == ord('q'):
         break
 
-# Release the camera and close the windows
+# Sai do programa
 cap.release()
 cv2.destroyAllWindows()
